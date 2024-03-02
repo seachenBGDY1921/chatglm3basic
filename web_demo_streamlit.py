@@ -29,14 +29,7 @@ st.set_page_config(
 def get_model():
 
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
-
-    # model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
-
-    # import sys
-    # sys.path.append('./openai_api_demo')
-    from utils import load_model_on_gpus
-    model = load_model_on_gpus(MODEL_PATH, num_gpus=2)
-
+    model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
     return tokenizer, model
 
 
