@@ -88,7 +88,6 @@ def load_model_on_gpus(checkpoint_path: Union[str, os.PathLike], num_gpus: int =
 #
 #----------------------------------------
 #
-
 @st.cache_resource
 def get_model():
 
