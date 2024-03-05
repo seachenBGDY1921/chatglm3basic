@@ -25,83 +25,84 @@ st.set_page_config(
 )
 
 
+from langchain.chains import RetrievalQA
+from langchain.prompts.prompt import PromptTemplate
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from service.chatglm_service import ChatGLMService
+from knowledge_service import KnowledgeService
 
-import os
-from typing import Dict, Tuple, Union, Optional
-
-from torch.nn import Module
-from transformers import AutoModel
-
-# -------utils.py-------------------
-def auto_configure_device_map(num_gpus: int) -> Dict[str, int]:
-    # transformer.word_embeddings 占用1层
-    # transformer.final_layernorm 和 lm_head 占用1层
-    # transformer.layers 占用 28 层
-    # 总共30层分配到num_gpus张卡上
-    num_trans_layers = 28
-    per_gpu_layers = 30 / num_gpus
-
-    # bugfix: 在linux中调用torch.embedding传入的weight,input不在同一device上,导致RuntimeError
-    # windows下 model.device 会被设置成 transformer.word_embeddings.device
-    # linux下 model.device 会被设置成 lm_head.device
-    # 在调用chat或者stream_chat时,input_ids会被放到model.device上
-    # 如果transformer.word_embeddings.device和model.device不同,则会导致RuntimeError
-    # 因此这里将transformer.word_embeddings,transformer.final_layernorm,lm_head都放到第一张卡上
-    # 本文件来源于https://github.com/THUDM/ChatGLM-6B/blob/main/utils.py
-    # 仅此处做少许修改以支持ChatGLM2
-    device_map = {
-        'transformer.embedding.word_embeddings': 0,
-        'transformer.encoder.final_layernorm': 0,
-        'transformer.output_layer': 0,
-        'transformer.rotary_pos_emb': 0,
-        'lm_head': 0
-    }
-
-    used = 2
-    gpu_target = 0
-    for i in range(num_trans_layers):
-        if used >= per_gpu_layers:
-            gpu_target += 1
-            used = 0
-        assert gpu_target < num_gpus
-        device_map[f'transformer.encoder.layers.{i}'] = gpu_target
-        used += 1
-
-    return device_map
-
-
-def load_model_on_gpus(checkpoint_path: Union[str, os.PathLike], num_gpus: int = 2,
-                       device_map: Optional[Dict[str, int]] = None, **kwargs) -> Module:
-    if num_gpus < 2 and device_map is None:
-        model = AutoModel.from_pretrained(checkpoint_path, trust_remote_code=True, **kwargs).half().cuda()
-    else:
-        from accelerate import dispatch_model
-
-        model = AutoModel.from_pretrained(checkpoint_path, trust_remote_code=True, **kwargs).half()
-
-        if device_map is None:
-            device_map = auto_configure_device_map(num_gpus)
-
-        model = dispatch_model(model, device_map=device_map)
-
-    return model
-#
-#----------------------------------------
-#
 @st.cache_resource
-def get_model():
+class LangChainApplication(object):
 
-    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
-    # model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
+    def __init__(self):
 
-    model = load_model_on_gpus("THUDM/chatglm3-6b", num_gpus=2).eval()
+        self.llm_service = ChatGLMService()
+
+        self.llm_service.load_model()
+
+        self.knowledge_service = KnowledgeService()
+    # 获取大语言模型返回的答案（基于本地知识库查询）
+    def get_knowledeg_based_answer(self, query,
+                                   history_len=5,
+                                   temperature=0.1,
+                                   top_p=0.9,
+                                   top_k=4,
+                                   chat_history=[]):
+        # 定义查询的提示模板格式：
+        prompt_template = '''
+基于以下已知信息，简洁和专业的来回答用户的问题。
+如果无法从中得到答案，请说 "根据已知信息无法回答该问题" 或 "没有提供足够的相关信息"，不允许在答案中添加编造成分，答案请使用中文。
+已知内容:
+{context}
+问题:
+{question}
+    '''
+        prompt = PromptTemplate(template=prompt_template,
+                                input_variables=["context", "question"])
+        self.llm_service.history = chat_history[-history_len:] if history_len > 0 else []
+        self.llm_service.temperature = temperature
+        self.llm_service.top_p = top_p
+
+        # 利用预先存在的语言模型、检索器来创建并初始化BaseRetrievalQA类的实例
+        knowledge_chain = RetrievalQA.from_llm(
+            llm=self.llm_service,
+            # 基于本地知识库构建一个检索器，并仅返回top_k的结果
+            retriever=self.knowledge_service.knowledge_base.as_retriever(
+                search_kwargs={"k": top_k}),
+            prompt=prompt)
+        # combine_documents_chain的作用是将查询返回的文档内容（page_content）合并到一起作为prompt中context的值
+        # 将combine_documents_chain的合并文档内容改为{page_content}
+
+        knowledge_chain.combine_documents_chain.document_prompt = PromptTemplate(
+            input_variables=["page_content"], template="{page_content}")
+
+        # 返回结果中是否包含源文档
+        knowledge_chain.return_source_documents = True
+
+        # 传入问题内容进行查询
+        result = knowledge_chain({"query": query})
+        return result
+
+    # 获取大语言模型返回的答案（未基于本地知识库查询）
+    def get_llm_answer(self, query):
+        result = self.llm_service._call(query)
+        return result
 
 
-    return tokenizer, model
+application = LangChainApplication()
+result1 = application.get_llm_answer('比赛要求是什么？')
+print('\nresult of ChatGLM3:\n')
+print(result1)
+print('\n#############################################\n')
 
-
+application.knowledge_service.init_knowledge_base()
+result2 = application.get_knowledeg_based_answer('鼻塞要求是什么？')
+print('\n#############################################\n')
+print('\nresult of knowledge base:\n')
+print(result2)
+# ---------------------------------------
 # 加载Chatglm3的model和tokenizer
-tokenizer, model = get_model()
+
 
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -138,6 +139,10 @@ if prompt_text:
     input_placeholder.markdown(prompt_text)
     history = st.session_state.history
     past_key_values = st.session_state.past_key_values
+
+    model = application.llm_service.model
+    tokenizer = application.llm_service.tokenizer
+
     for response, history, past_key_values in model.stream_chat(
             tokenizer,
             prompt_text,
