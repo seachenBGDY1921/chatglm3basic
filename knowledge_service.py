@@ -6,6 +6,7 @@ vector service
 """
 
 import os
+import streamlit as st
 # import nltk
 
 # work_dir = '/kaggle'
@@ -35,7 +36,7 @@ class KnowledgeService(object):
         self.embeddings = HuggingFaceEmbeddings(model_name='shibing624/text2vec-base-chinese', model_kwargs={'device': 'cpu'})
     #     与这个绝对路径无关
 
-
+    @st.cache_resource
     def init_knowledge_base(self):
         """
         初始化本地知识库向量

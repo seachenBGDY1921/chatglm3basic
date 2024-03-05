@@ -31,7 +31,7 @@ from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from service.chatglm_service import ChatGLMService
 from knowledge_service import KnowledgeService
 
-@st.cache_resource
+
 class LangChainApplication(object):
 
     def __init__(self):
