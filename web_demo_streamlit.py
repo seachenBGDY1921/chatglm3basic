@@ -41,6 +41,7 @@ if "history" not in st.session_state:
 if "past_key_values" not in st.session_state:
     st.session_state.past_key_values = None
 
+# 侧边栏
 max_length = st.sidebar.slider("max_length", 0, 32768, 8192, step=1)
 top_p = st.sidebar.slider("top_p", 0.0, 1.0, 0.8, step=0.01)
 temperature = st.sidebar.slider("temperature", 0.0, 1.0, 0.6, step=0.01)

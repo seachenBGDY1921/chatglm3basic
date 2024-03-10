@@ -32,7 +32,13 @@ from service.chatglm_service import ChatGLMService
 from knowledge_service import KnowledgeService
 
 
-class LangChainApplication(object):
+@st.cache_resource
+def get_model():
+
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
+    model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
+    return tokenizer, model
+class LangChainApplication():
 
     def __init__(self):
 
@@ -96,7 +102,7 @@ print(result1)
 print('\n#############################################\n')
 
 application.knowledge_service.init_knowledge_base()
-result2 = application.get_knowledeg_based_answer('鼻塞要求是什么？')
+result2 = application.get_knowledeg_based_answer('比赛要求是什么？')
 print('\n#############################################\n')
 print('\nresult of knowledge base:\n')
 print(result2)
