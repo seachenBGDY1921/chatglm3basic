@@ -31,22 +31,33 @@ from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from service.chatglm_service import ChatGLMService
 from knowledge_service import KnowledgeService
 
-
 @st.cache_resource
-def get_model():
+def get_application_instance():
+    # 创建ChatGLMService实例并加载模型
+    llm_service = ChatGLMService()
+    llm_service.load_model()
 
-    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
-    model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
-    return tokenizer, model
+    # 创建KnowledgeService实例
+    knowledge_service = KnowledgeService()
+    knowledge_service.init_knowledge_base()
+    # 返回一个包含初始化服务的LangChainApplication实例
+    return LangChainApplication(llm_service, knowledge_service)
+
+# @st.cache_resource
+# def get_model():
+#     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True)
+#     model = AutoModel.from_pretrained(MODEL_PATH, trust_remote_code=True, device_map="auto").eval()
+#     return tokenizer, model
 class LangChainApplication():
 
-    def __init__(self):
+    # def __init__(self):
+    #     self.llm_service = ChatGLMService()
+    #     self.llm_service.load_model()
+    #     self.knowledge_service = KnowledgeService()
 
-        self.llm_service = ChatGLMService()
-
-        self.llm_service.load_model()
-
-        self.knowledge_service = KnowledgeService()
+    def __init__(self, llm_service, knowledge_service):
+        self.llm_service = llm_service
+        self.knowledge_service = knowledge_service
     # 获取大语言模型返回的答案（基于本地知识库查询）
     def get_knowledeg_based_answer(self, query,
                                    history_len=5,
@@ -95,14 +106,14 @@ class LangChainApplication():
         return result
 
 
-application = LangChainApplication()
-result1 = application.get_llm_answer('比赛要求是什么？')
+application = get_application_instance()
+result1 = application.get_llm_answer('赛题评分要点？')
 print('\nresult of ChatGLM3:\n')
 print(result1)
 print('\n#############################################\n')
 
 application.knowledge_service.init_knowledge_base()
-result2 = application.get_knowledeg_based_answer('比赛要求是什么？')
+result2 = application.get_knowledeg_based_answer('赛题评分要点？')
 print('\n#############################################\n')
 print('\nresult of knowledge base:\n')
 print(result2)
@@ -162,3 +173,11 @@ if prompt_text:
         message_placeholder.markdown(response)
     st.session_state.history = history
     st.session_state.past_key_values = past_key_values
+
+# prompt_text = st.text_input("请输入您的问题", key="input_text")
+# if prompt_text:
+#     # 这里我们可以调用 get_knowledeg_based_answer 来获取基于知识的答案
+#     response = application.get_knowledeg_based_answer(prompt_text)
+#     st.session_state.history.append({"role": "user", "content": prompt_text})
+#     st.session_state.history.append({"role": "assistant", "content": response})
+#     st.experimental_rerun()
